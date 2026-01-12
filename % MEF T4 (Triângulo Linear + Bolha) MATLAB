@@ -1,0 +1,93 @@
+% MEF T4 (Triângulo Linear + Bolha)
+clear; clc;
+
+% --- 1. FUNÇÕES DO ELEMENTO T4 ---
+function [N, B, detJ] = T4_Shape(xi, eta, coord)
+    L1 = 1-xi-eta; L2 = xi; L3 = eta;
+    
+    % Função Bolha (Nó 4) e Modificação dos Cantos para manter partição da unidade
+    % N_bolha = 27 * L1 * L2 * L3
+    Nb = 27 * L1 * L2 * L3;
+    N1 = L1 - (1/3)*Nb;
+    N2 = L2 - (1/3)*Nb;
+    N3 = L3 - (1/3)*Nb;
+    
+    N = [N1, N2, N3, Nb];
+    
+    % Derivadas da Bolha (Regra da cadeia)
+    % dNb/dxi = 27 * eta * (1 - 2*xi - eta)
+    dNb_dr = 27 * eta * (1 - 2*xi - eta);
+    % dNb/deta = 27 * xi * (1 - xi - 2*eta)
+    dNb_ds = 27 * xi * (1 - xi - 2*eta);
+    
+    % Derivadas Totais [dN/dxi; dN/deta]
+    dN_nat = [-1 - dNb_dr/3,  1 - dNb_dr/3,  0 - dNb_dr/3,  dNb_dr;
+              -1 - dNb_ds/3,  0 - dNb_ds/3,  1 - dNb_ds/3,  dNb_ds];
+          
+    % Jacobiano (Usa apenas os 3 primeiros nós geométricos)
+    J = dN_nat(:, 1:3) * coord(1:3, :); 
+    detJ = det(J);
+    B = J \ dN_nat;
+end
+
+function [Ke, fe] = Kf_T4(elcoor, k_mat, f_vol)
+    Ke = zeros(4, 4); fe = zeros(4, 1);
+    
+    % Integração 3 Pontos (Hammer) - Necessário para a função bolha
+    % Coordenadas baricêntricas [L1 L2 L3] e pesos
+    % Pontos: (1/6, 1/6), (2/3, 1/6), (1/6, 2/3) -> em xi, eta
+    pts = [1/6, 1/6; 2/3, 1/6; 1/6, 2/3];
+    w = 1/6; % Peso (já dividido por 2 da área, soma total = 0.5)
+    
+    for i = 1:3
+        xi = pts(i,1); eta = pts(i,2);
+        [N, B, detJ] = T4_Shape(xi, eta, elcoor);
+        Ke = Ke + (k_mat * (B' * B)) * detJ * w;
+        fe = fe + (N' * f_vol) * detJ * w;
+    end
+end
+
+% --- 2. SCRIPT PRINCIPAL ---
+% Malha Base
+base_coor = [0.0 0.0; 0.5 0.0; 1.0 0.0; 0.0 0.5; 0.5 0.5; 1.0 0.5; 0.0 1.0; 0.5 1.0; 1.0 1.0];
+base_ijk  = [1 2 5; 1 5 4; 2 3 6; 2 6 5; 4 5 8; 4 8 7; 5 6 9; 5 9 8];
+
+% Adicionar nós bolha automaticamente (Centróides)
+nnos_base = size(base_coor, 1);
+nelems = size(base_ijk, 1);
+elcoor = base_coor;
+ijk = zeros(nelems, 4);
+
+for i = 1:nelems
+    nos = base_ijk(i, :);
+    centroide = mean(base_coor(nos, :));
+    elcoor = [elcoor; centroide]; % Adiciona nó novo ao final
+    ijk(i, :) = [nos, nnos_base + i]; % [n1 n2 n3 n_bolha]
+end
+
+nnos = size(elcoor, 1);
+K = zeros(nnos); F = zeros(nnos, 1);
+
+for i = 1:nelems
+    % Nota: elcoor(ijk(i,:), :) pega as coordenadas dos 4 nós
+    [Ke, fe] = Kf_T4(elcoor(ijk(i,:), :), 1.0, 1.0);
+    nos = ijk(i,:);
+    K(nos, nos) = K(nos, nos) + Ke;
+    F(nos) = F(nos) + fe;
+end
+
+% BCs (Apenas nos nós originais, as bolhas são internas)
+fixed = [1; 4; 7];
+for n = fixed', K(n,:)=0; K(:,n)=0; K(n,n)=1; F(n)=0.1; end
+
+% Neumann
+g = 5; L = 0.5;
+F(3) = F(3) + g*L/2; F(6) = F(6) + g*L; F(9) = F(9) + g*L/2;
+
+U = K \ F;
+
+% Plot (Apenas a parte linear para visualização)
+figure; title('Triângulo T4 (Linear + Bolha)'); hold on; axis equal;
+patch('Faces', ijk(:,1:3), 'Vertices', elcoor, 'FaceVertexCData', U, 'FaceColor', 'interp');
+plot(elcoor(nnos_base+1:end,1), elcoor(nnos_base+1:end,2), 'k.'); % Plota as bolhas
+colorbar; colormap('jet');

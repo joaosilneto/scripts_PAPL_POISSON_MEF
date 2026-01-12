@@ -1,0 +1,85 @@
+% MEF T3 (Triângulo Linear - 3 nós)
+clear; clc;
+
+% --- 1. FUNÇÕES DO ELEMENTO T3 ---
+function [N, B, detJ] = T3_Shape(xi, eta, coord)
+    % N = [L1, L2, L3] onde L3 = 1 - xi - eta
+    N = [1-xi-eta, xi, eta];
+    
+    % Derivadas em relação a xi e eta
+    % dN/dxi = [-1, 1, 0]
+    % dN/deta = [-1, 0, 1]
+    dN_nat = [-1, 1, 0;
+              -1, 0, 1];
+          
+    J = dN_nat * coord; % Jacobiana 2x2
+    detJ = det(J);
+    
+    % Matriz B (invJ * dN_nat)
+    B = J \ dN_nat; 
+end
+
+function [Ke, fe] = Kf_T3(elcoor, k_mat, f_vol)
+    Ke = zeros(3, 3);
+    fe = zeros(3, 1);
+    
+    % Quadratura de 1 Ponto (Centróide)
+    % Peso w = 1/2 (Área do triângulo unitário no espaço natural)
+    xi = 1/3; eta = 1/3; w = 0.5; 
+    
+    [N, B, detJ] = T3_Shape(xi, eta, elcoor);
+    
+    % Acumula (detJ é o determinante real da transformação)
+    Ke = Ke + (k_mat * (B' * B)) * detJ * w;
+    fe = fe + (N' * f_vol) * detJ * w;
+end
+
+% --- 2. SCRIPT PRINCIPAL ---
+
+% Malha Base (Mesmos 9 nós da grade Q4 original)
+elcoor = [0.0 0.0; 0.5 0.0; 1.0 0.0;
+          0.0 0.5; 0.5 0.5; 1.0 0.5;
+          0.0 1.0; 0.5 1.0; 1.0 1.0];
+
+% Conectividade: Dividindo cada quadrado em 2 triângulos
+% [n1 n2 n3] - Sentido anti-horário
+ijk = [1 2 5; 1 5 4;   % Quadrado inf-esq
+       2 3 6; 2 6 5;   % Quadrado inf-dir
+       4 5 8; 4 8 7;   % Quadrado sup-esq
+       5 6 9; 5 9 8];  % Quadrado sup-dir
+
+nnos = size(elcoor, 1);
+nelems = size(ijk, 1);
+k_mat = 1.0; f_vol = 1.0;
+
+% Montagem
+K = zeros(nnos); F = zeros(nnos, 1);
+
+for i = 1:nelems
+    nodes = ijk(i, :);
+    [Ke, fe] = Kf_T3(elcoor(nodes, :), k_mat, f_vol);
+    K(nodes, nodes) = K(nodes, nodes) + Ke;
+    F(nodes) = F(nodes) + fe;
+end
+
+% Dirichlet (x=0 -> Nós 1, 4, 7)
+fixed = [1; 4; 7];
+for n = fixed'
+    K(n,:) = 0; K(:,n) = 0; K(n,n) = 1;
+    F(n) = 0.1;
+end
+
+% Neumann (x=1 -> Nós 3, 6, 9)
+g = 5; L_edge = 0.5;
+% No elemento linear, a carga é distribuída igualmente nos nós da aresta (g*L/2)
+F(3) = F(3) + g*L_edge/2;
+F(6) = F(6) + g*L_edge/2 + g*L_edge/2; % Recebe da aresta de baixo e de cima
+F(9) = F(9) + g*L_edge/2;
+
+% Solução
+U = K \ F;
+
+% Plot
+figure; title('Triângulo T3 (Linear)'); hold on; axis equal;
+patch('Faces', ijk, 'Vertices', elcoor, 'FaceVertexCData', U, 'FaceColor', 'interp', 'EdgeColor', 'k');
+colorbar; colormap('jet');

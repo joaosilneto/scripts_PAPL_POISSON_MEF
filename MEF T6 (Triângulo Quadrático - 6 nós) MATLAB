@@ -1,0 +1,90 @@
+% MEF T6 (Triângulo Quadrático - 6 nós)
+clear; clc;
+
+% --- 1. FUNÇÕES DO ELEMENTO T6 ---
+function [N, B, detJ] = T6_Shape(xi, eta, coord)
+    L1 = 1 - xi - eta; L2 = xi; L3 = eta;
+    
+    % Funções de Forma Quadráticas
+    % Cantos
+    N1 = L1*(2*L1-1); N2 = L2*(2*L2-1); N3 = L3*(2*L3-1);
+    % Meios (Arestas)
+    N4 = 4*L1*L2;     N5 = 4*L2*L3;     N6 = 4*L3*L1;
+    
+    N = [N1 N2 N3 N4 N5 N6];
+    
+    % Derivadas (dN/dxi e dN/deta)
+    % Exemplo analítico para otimização
+    dNdr = [ 1-4*L1,  4*L2-1,  0,       4*(L1-L2),  4*L3,     -4*L3 ];
+    dNds = [ 1-4*L1,  0,       4*L3-1,  -4*L2,      4*L2,      4*(L1-L3)];
+    
+    dN_nat = [dNdr; dNds];
+    
+    J = dN_nat * coord;
+    detJ = det(J);
+    B = J \ dN_nat;
+end
+
+function [Ke, fe] = Kf_T6(elcoor, k_mat, f_vol)
+    Ke = zeros(6, 6); fe = zeros(6, 1);
+    % 3 Pontos de Gauss são padrão para T6
+    pts = [1/6, 1/6; 2/3, 1/6; 1/6, 2/3]; w = 1/6;
+    
+    for i = 1:3
+        [N, B, detJ] = T6_Shape(pts(i,1), pts(i,2), elcoor);
+        Ke = Ke + (k_mat * (B' * B)) * detJ * w;
+        fe = fe + (N' * f_vol) * detJ * w;
+    end
+end
+
+% --- 2. SCRIPT PRINCIPAL ---
+% Malha Simplificada (2 Elementos Grandes)
+% Elemento 1: Triângulo Inferior (Nós 1,3,7 e meios 2,5,4)
+% Elemento 2: Triângulo Superior (Nós 3,9,7 e meios 6,8,5)
+% Onde: Nó 5 é o nó central diagonal.
+
+elcoor = [0.0 0.0;  0.5 0.0;  1.0 0.0;   % y = 0
+          0.0 0.5;  0.5 0.5;  1.0 0.5;   % y = 0.5
+          0.0 1.0;  0.5 1.0;  1.0 1.0];  % y = 1.0
+
+% Conectividade T6: [V1 V2 V3 M12 M23 M31]
+% Elemento 1 (Inf-Esq): Vértices(1,3,7) Meios(2,5,4)
+% Elemento 2 (Sup-Dir): Vértices(3,9,7) Meios(6,8,5) -> Note que aresta 3-7 (diagonal) é compartilhada (nó 5)
+ijk = [1 3 7,  2 5 4;
+       3 9 7,  6 8 5];
+
+nnos = 9; nelems = 2;
+K = zeros(nnos); F = zeros(nnos, 1);
+
+for i = 1:nelems
+    [Ke, fe] = Kf_T6(elcoor(ijk(i,:), :), 1.0, 1.0);
+    nos = ijk(i,:);
+    K(nos, nos) = K(nos, nos) + Ke;
+    F(nos) = F(nos) + fe;
+end
+
+% Dirichlet (x=0 -> Nós 1, 4, 7)
+fixed = [1; 4; 7];
+for n = fixed', K(n,:)=0; K(:,n)=0; K(n,n)=1; F(n)=0.1; end
+
+% Neumann (x=1 -> Aresta direita formada por nós 3, 6, 9)
+% Carga total na aresta = g * L (Onde L=1.0 neste caso de 2 elementos grandes)
+% Regra de Simpson para carga distribuída em elemento quadrático: 
+% Nós de Canto recebem 1/6 da carga total. Nó do Meio recebe 4/6.
+g = 5; L_total = 1.0;
+F(3) = F(3) + (1/6)*g*L_total;
+F(6) = F(6) + (4/6)*g*L_total; % Nó quadrático pega a maior parte!
+F(9) = F(9) + (1/6)*g*L_total;
+
+U = K \ F;
+
+% Plot
+fprintf('Solução T6:\n'); disp([(1:nnos)', U]);
+figure; title('Triângulo T6 (Quadrático)'); hold on; axis equal;
+% Gambiarra para plotar T6 usando patch (plota como se fosse linear subdividido)
+tri_plot = [ijk(:,1) ijk(:,4) ijk(:,6); 
+            ijk(:,4) ijk(:,2) ijk(:,5); 
+            ijk(:,6) ijk(:,5) ijk(:,3); 
+            ijk(:,4) ijk(:,5) ijk(:,6)]; 
+patch('Faces', tri_plot, 'Vertices', elcoor, 'FaceVertexCData', U, 'FaceColor', 'interp', 'EdgeColor', 'k');
+colorbar; colormap('jet');

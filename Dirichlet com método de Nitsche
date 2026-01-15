@@ -1,0 +1,78 @@
+# Weak imposition of Dirichklet conditions for the poisson problem
+
+from mpi4py import MPI
+from dolfinx import* #mesh, fem, io, plot
+from dolfinx.fem.petsc import LinearProblem
+from ufl import*
+import numpy as np
+import os
+import pandas as pd
+import pyvista as pv 
+from pathlib import Path
+
+N = 8
+
+domain = mesh.create_unit_square(MPI.COMM_WORLD, N, N,  mesh.CellType.quadrilateral)
+V = fem.functionspace(domain, ("Lagrange", 1))
+
+uD = fem.Function(V)
+x = SpatialCoordinate(domain)
+u_ex = 1 + x[0]**2 + 2*x[1]**2
+uD.interpolate(fem.Expression(u_ex,V.element.interpolation_points))
+f = -div(grad(u_ex))
+
+
+u = TrialFunction(V)
+v = TestFunction(V)
+n = FacetNormal(domain)
+h = CellDiameter(domain)
+alpha = fem.Constant(domain, 20.0)
+a = inner(grad(u), grad(v)) * dx - inner(n,grad(u)) * v * ds
+a += -inner(n,grad(v)) * u * ds + (alpha/h) * inner(u,v) * ds
+L = inner(f,v) * dx
+L += -inner(n , grad(v)) * uD * ds + (alpha/h)*inner(uD,v) * ds
+
+problem = LinearProblem (
+    a,
+    L,
+    petsc_options_prefix = "nitsche_poisson"
+)
+uh = problem.solve()
+
+error_form = fem.form(inner(uh - uD, uh - uD) * dx)
+error_local = fem.assemble_scalar(error_form)
+errorL2 = np.sqrt(domain.comm.allreduce(error_local, op = MPI.SUM))
+if domain.comm.rank == 0:
+    print(rf"$L^2$-error: {errorL2:.2e}")
+
+error_max = domain.comm.allreduce(np.max(np.abs(uD.x.array - uh.x.array)), op=MPI.MAX)
+
+if domain.comm.rank == 0:
+    print(f"Error_max : {error_max:.2e}")
+    
+results_folder = Path("results_D_2")
+results_folder.mkdir(exist_ok = True, parents = True)
+filename = results_folder / "poisson_D_2"
+with io.VTXWriter(domain.comm, filename.with_suffix(".bp"), [uh]) as vtx:
+    vtx.write(0.0)
+with io.XDMFFile(domain.comm, filename.with_suffix(".xdmf"), "w") as xdmf:
+    xdmf.write_mesh(domain)
+    xdmf.write_function(uh)
+    
+    
+print("Problema de Poisson resolvido com sucesso")
+    
+coords = V.tabulate_dof_coordinates()
+u_vals = uh.x.array
+
+data = {
+    "x": coords[:, 0],
+    "y": coords[:, 1],
+    "u": uh.x.array
+}
+
+df = pd.DataFrame(data)
+print(df)
+
+
+

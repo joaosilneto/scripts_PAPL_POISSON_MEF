@@ -1,0 +1,363 @@
+% Limpeza inicial
+clear; clc;
+
+% =========================================================================
+% FUNÇÕES DO ELEMENTO Q4
+% =========================================================================
+
+function [N, B, DJ] = Q4(r, s, coord)
+    % Funções de forma para elemento Q4
+    N = 0.25 * [(1-r)*(1-s), (1+r)*(1-s), (1+r)*(1+s), (1-r)*(1+s)];
+
+    % Derivadas em relação às coordenadas naturais (r, s)
+    dNdr = 0.25 * [-(1-s),  (1-s), (1+s), -(1+s)];
+    dNds = 0.25 * [-(1-r), -(1+r), (1+r),  (1-r)];
+    DiffN = [dNdr; dNds];
+
+    % Jacobiana
+    J = DiffN * coord;
+    DJ = det(J);
+    invJ = inv(J);
+
+    % Matriz B
+    B = invJ * DiffN;
+end
+
+% =========================================================================
+% FUNÇÕES DO ELEMENTO T3
+% =========================================================================
+
+function [N, B, DJ] = T3(r, s, coord)
+
+    % Funções de forma para elemento T3
+    N = [1-r-s, r, s];
+
+    % Derivadas em relação a r e s
+    DiffN = [-1, 1, 0;
+             -1, 0, 1];
+
+    % Jacobiana
+    J = DiffN * coord;
+    DJ = det(J);
+
+    % Matriz B
+    B = inv(J) * DiffN;
+end
+
+% =========================================================================
+% FUNÇÕES DO ELEMENTO Q8
+% =========================================================================
+
+function [N, B, DJ] = Q8(r, s, coord)
+
+    % Funções de forma Serendipidade (8 nós)
+    N = zeros(1, 8);
+    % Nós dos cantos
+    N(1) = 0.25*(1-r)*(1-s)*(-r-s-1);
+    N(2) = 0.25*(1+r)*(1-s)*(r-s-1);
+    N(3) = 0.25*(1+r)*(1+s)*(r+s-1);
+    N(4) = 0.25*(1-r)*(1+s)*(-r+s-1);
+    % Nós dos meios das arestas
+    N(5) = 0.5*(1-r^2)*(1-s);
+    N(6) = 0.5*(1+r)*(1-s^2);
+    N(7) = 0.5*(1-r^2)*(1+s);
+    N(8) = 0.5*(1-r)*(1-s^2);
+
+    % Derivadas das funções de forma em r e s
+    t1r = (1/4)*s+(1/2)*r*(1+s)+(1/4)*s^2;
+    t2r = -(1/4)*s+(1/2)*r*(1+s)-(1/4)*s^2;
+    t3r = (1/4)*s-(1/4)*s^2+(1/2)*r*(1-s);
+    t4r = -(1/4)*s+(1/2)*r*(1-s)+(1/4)*s^2;
+    t5r = -r*(1+s);
+    t6r = (1/2)*s^2-1/2;
+    t7r = -r*(1-s);
+    t8r = -(1/2)*s^2+1/2;
+
+    t1s = (1/4)*r+(1/4)*r^2+(1/2)*s*(1+r);
+    t2s = -(1/4)*r+(1/4)*r^2+(1/2)*s*(1-r);
+    t3s = (1/4)*r+(1/2)*s*(1-r)-(1/4)*r^2;
+    t4s = -(1/4)*r-(1/4)*r^2+(1/2)*s*(1+r);
+    t5s = -(1/2)*r^2+1/2;
+    t6s = -s*(1-r);
+    t7s = (1/2)*r^2-1/2;
+    t8s = -s*(1+r);
+
+    % Derivadas em relação a r e s
+    DiffN = [t1r t2r t3r t4r t5r t6r t7r t8r;
+             t1s t2s t3s t4s t5s t6s t7s t8s];
+
+    % Jacobiana
+    J = DiffN * coord;
+    DJ = det(J);
+
+    % Matriz B (2x8)
+    B = inv(J) * DiffN;
+end
+
+% =========================================================================
+% FUNÇÕES DO ELEMENTO T6
+% =========================================================================
+
+function [N, B, DJ] = T6(r, s, coord)
+
+    % Funções de forma quadráticas
+    L3 = 1 - r - s;
+    N = [(2*L3-1)*L3, (2*r-1)*r, (2*s-1)*s, 4*r*L3, 4*r*s, 4*s*L3];
+
+    % Derivadas em relação a r e s
+    t1r = -3+4*r+4*s; t2r = -1+4*r; t3r = 0;   t4r = 4-8*r-4*s; t5r = 4*s; t6r = -4*s;
+    t1s = -3+4*r+4*s; t2s = 0;      t3s = -1+4*s; t4s = -4*r;      t5s = 4*r; t6s = 4-4*r-8*s;
+
+    DiffN = [t1r t2r t3r t4r t5r t6r;
+             t1s t2s t3s t4s t5s t6s];
+
+    % Jacobiana
+    J = DiffN * coord;
+    DJ = det(J);
+
+    % Matriz B (2x6)
+    B = inv(J) * DiffN;
+end
+
+
+function [Ke, fe] = Kf(ele, elcoor, ijk, k_mat, f_vol)
+
+    nodes = ijk(ele, :);
+    coord = elcoor(nodes, :);
+    nne = length(nodes);
+
+    Ke = zeros(nne, nne);
+    fe = zeros(nne, 1);
+
+
+    switch nne
+
+      % Q4
+      case 4
+
+        g = 0.577350269189626;
+        gpts = [-g, -g; g, -g; g, g; -g, g];
+        weights = [1, 1, 1, 1];
+
+        for p = 1:4
+            r = gpts(p, 1);
+            s = gpts(p, 2);
+            [N, B, DJ] = Q4(r, s, coord);
+
+            Ke = Ke + (k_mat * (B' * B)) * DJ * weights(p);
+            fe = fe + (N' * f_vol) * DJ * weights(p);
+
+        end
+
+      % T3
+      case 3
+
+        % Integração de 1 ponto
+        [N, B, DJ] = T3(1/3, 1/3, coord);
+        area = 0.5 * DJ;
+        Ke = (k_mat * (B' * B)) * area;
+        fe = (N' * f_vol) * area;
+
+      % Q8
+      case 8
+
+        gpts = [-0.7745966692, 0, 0.7745966692];
+        weights = [5/9, 8/9, 5/9];
+        for q = 1:3
+            for p = 1:3
+                r = gpts(p);
+                s = gpts(q);
+                W = weights(p) * weights(q);
+                [N, B, DJ] = Q8(r, s, coord);
+
+                Ke = Ke + (k_mat * (B' * B)) * DJ * W;
+                fe = fe + (N' * f_vol) * DJ * W;
+            end
+        end
+
+      % T6
+      case 6
+
+        gpts = [1/6 2/3 1/6; 1/6 1/6 2/3];
+        weights = [1/6 1/6 1/6];
+        for p = 1:3
+            r = gpts(1, p);
+            s = gpts(2, p);
+            [N, B, DJ] = T6(r, s, coord);
+
+            Ke = Ke + (k_mat * (B' * B)) * DJ * weights(p);
+            fe = fe + (N' * f_vol) * DJ * weights(p);
+        end
+
+      otherwise
+            error('nne não suportado.');
+
+      endswitch
+
+end
+
+% =========================================================================
+% SCRIPT PRINCIPAL
+% =========================================================================
+
+##% Exemplo com Q4:
+##% 1. Definição da Malha (4 elementos num domínio 1x1)
+##% Nós organizados por linhas (y=0, depois y=0.5, depois y=1)
+##% Coordenadas: [x, y]
+##elcoor = [0.0  0.0;   % Nó 1 (Canto Inferior Esquerdo)
+##          0.5  0.0;   % Nó 2
+##          1.0  0.0;   % Nó 3 (Canto Inferior Direito)
+##          0.0  0.5;   % Nó 4
+##          0.5  0.5;   % Nó 5 (Centro do domínio)
+##          1.0  0.5;   % Nó 6
+##          0.0  1.0;   % Nó 7 (Canto Superior Esquerdo)
+##          0.5  1.0;   % Nó 8
+##          1.0  1.0];  % Nó 9 (Canto Superior Direito)
+##
+##% Conectividade: [n1 n2 n3 n4] (Sentido anti-horário)
+##% Elemento 1: Canto inferior esquerdo
+##% Elemento 2: Canto inferior direito
+##% Elemento 3: Canto superior esquerdo
+##% Elemento 4: Canto superior direito
+##ijk = [1 2 5 4;
+##       2 3 6 5;
+##       4 5 8 7;
+##       5 6 9 8];
+
+
+% Exemplo com T3:
+% Malha 2x2 subdividida em Triângulos T3 (3 colunas)
+% Coordenadas (mesmas da malha 2x2 Q4)
+elcoor = [0.0 0.0;
+          0.5 0.0;
+          1.0 0.0;
+          0.0 0.5;
+          0.5 0.5;
+          1.0 0.5;
+          0.0 1.0;
+          0.5 1.0;
+          1.0 1.0];
+
+% Conectividade T3: [n1 n2 n3]
+ijk = [1 2 5;
+       5 4 1;
+       2 3 6;
+       6 5 2;
+       4 5 8;
+       8 7 4;
+       5 6 9;
+       9 8 5];
+
+##% Exemplo com T6:
+##% Malha com 2 elementos T6 (6 colunas)
+##elcoor = [0.0 0.0;
+##          1.0 0.0;
+##          1.0 1.0;
+##          0.0 1.0;
+##          0.5 0.0;
+##          1.0 0.5;
+##          0.5 1.0;
+##          0.0 0.5;
+##          0.5 0.5];
+##
+##% Conectividade T6:
+##ijk = [1 2 3 5 6 9;   % Triângulo inferior
+##       1 3 4 9 7 8];  % Triângulo superior
+
+##% Exemplo com Q8:
+##% Malha com 1 elemento Q8 (8 colunas) para o domínio 1x1
+##elcoor = [0.0 0.0;
+##          1.0 0.0;
+##          1.0 1.0;
+##          0.0 1.0;
+##          0.5 0.0;
+##          1.0 0.5;
+##          0.5 1.0;
+##          0.0 0.5];
+##
+##% Conectividade Q8:
+##ijk = [1 2 3 4 5 6 7 8];
+
+
+nnos = size(elcoor, 1);
+nelems = size(ijk, 1);
+k_mat = 1.0; % Condutividade
+f_vol = 1.0; % Termo de fonte
+
+% 2. Inicialização de Matrizes Globais
+K_global = zeros(nnos, nnos);
+F_global = zeros(nnos, 1);
+
+% 3. Assemble (Montagem)
+for i = 1:nelems
+    [Ke, fe] = Kf(i, elcoor, ijk, k_mat, f_vol);
+    nodes = ijk(i, :);
+    K_global(nodes, nodes) = K_global(nodes, nodes) + Ke;
+    F_global(nodes) = F_global(nodes) + fe;
+end
+
+% 4. Condições de Contorno Dirichlet (Exemplo: u=0 em x=0)
+u_essential_nodes = [1; 4; 7];
+##u_essential_nodes = [1; 8; 4];
+u_value = 0;
+
+for n = u_essential_nodes'
+    K_global(n, :) = 0;
+    K_global(:, n) = 0;
+    K_global(n, n) = 1;
+    F_global(n) = u_value;
+end
+
+% 5. Solução
+U = K_global \ F_global;
+
+
+##% 6. Visualizar o resultado
+##printf("\nResultados do U:\n");
+##disp([(1:nnos)', elcoor, U]);
+##figure;
+##patch('Faces', ijk, 'Vertices', elcoor, 'FaceVertexCData', U, ...
+##      'FaceColor', 'interp', 'EdgeColor', 'black');
+##colorbar;
+##colormap('jet');
+##xlabel('Eixo X');
+##ylabel('Eixo Y');
+##title('Solução 2D');
+##axis equal;
+##grid on;
+##hold on;
+##for i = 1:nnos
+##    text(elcoor(i,1), elcoor(i,2), sprintf(' %d', i), 'FontSize', 10, 'Color', 'white');
+##end
+##hold off;
+
+
+% 6. Visualizar o resultado
+printf("\nResultados do U:\n");
+disp([(1:nnos)', elcoor, U]);
+
+figure;
+hold on;
+
+ncol = size(ijk, 2);
+if ncol == 8
+    vert_cols = 1:4;
+elseif ncol == 6
+    vert_cols = 1:3;
+else
+    vert_cols = 1:ncol;
+end
+patch('Faces', ijk(:, vert_cols), ...
+      'Vertices', elcoor, ...
+      'FaceVertexCData', U, ...
+      'FaceColor', 'interp', ...
+      'EdgeColor', 'black', ...
+      'LineWidth', 1.5);
+colorbar;
+colormap('jet');
+xlabel('Eixo X');
+ylabel('Eixo Y');
+title(sprintf('Solução MEF - Elemento com %d nós', ncol));
+axis equal;
+grid on;
+hold off;
